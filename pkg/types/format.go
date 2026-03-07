@@ -31,7 +31,7 @@ func (f FrameFormat) String() string {
 type SampleFormat int
 
 const (
-	SampleFmtInt8    SampleFormat = iota + 1
+	SampleFmtInt8 SampleFormat = iota + 1
 	SampleFmtInt16
 	SampleFmtInt24
 	SampleFmtInt32

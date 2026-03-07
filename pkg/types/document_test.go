@@ -4,9 +4,9 @@ import "testing"
 
 func TestSongDocument_FolderPath(t *testing.T) {
 	tests := []struct {
-		name     string
-		doc      SongDocument
-		want     string
+		name string
+		doc  SongDocument
+		want string
 	}{
 		{
 			"no ancestors",
