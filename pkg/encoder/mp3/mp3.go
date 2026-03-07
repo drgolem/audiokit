@@ -63,7 +63,7 @@ func (e *Encoder) GetFormat() (rate, channels, bitsPerSample int) {
 }
 
 // SamplesPerFrame returns the number of PCM samples per MP3 frame.
-func (e *Encoder) GetSamplesPerFrame() int {
+func (e *Encoder) SamplesPerFrame() int {
 	return SamplesPerFrame
 }
 
