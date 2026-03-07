@@ -3,6 +3,7 @@ module github.com/drgolem/audiokit
 go 1.25.2
 
 require (
+	github.com/braheezy/shine-mp3 v0.1.0
 	github.com/drgolem/go-flac v0.0.0-20260227233836-5288cd6451bf
 	github.com/drgolem/go-ogg v0.0.0-20221021062348-a1b6f0a17f55
 	github.com/drgolem/go-opus v0.0.0-20221022213453-763cb73ec5b5
