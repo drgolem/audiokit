@@ -87,12 +87,12 @@ func (d *Decoder) DecodeSamples(samples int, audio []byte) (int, error) {
 
 	var err error
 	for {
-		sampleBytes := d.ringBuffer.Size()
+		sampleBytes := d.ringBuffer.AvailableRead()
 		samplesAvail := int(sampleBytes / uint64(d.channels*d.outputBytesPerSample))
 		if err == io.EOF || samplesAvail >= samples {
 			bytesRequest := samples * d.channels * d.outputBytesPerSample
 			if err == io.EOF {
-				bytesRequest = int(d.ringBuffer.Size())
+				bytesRequest = int(d.ringBuffer.AvailableRead())
 			}
 			if bytesRequest == 0 {
 				return 0, nil

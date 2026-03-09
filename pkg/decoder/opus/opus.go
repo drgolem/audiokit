@@ -57,7 +57,7 @@ func (d *Decoder) DecodeSamples(samples int, audio []byte) (int, error) {
 
 	outputBytesPerSample := 2
 	for {
-		sampleBytes := d.ringBuffer.Size()
+		sampleBytes := d.ringBuffer.AvailableRead()
 		samplesAvail := int(sampleBytes / uint64(d.channels*outputBytesPerSample))
 		if samplesAvail >= samples {
 			bytesRequest := samples * d.channels * outputBytesPerSample
@@ -76,7 +76,7 @@ func (d *Decoder) DecodeSamples(samples int, audio []byte) (int, error) {
 		}
 		if nSamples == 0 {
 			// EOF — return whatever is buffered
-			avail := d.ringBuffer.Size()
+			avail := d.ringBuffer.AvailableRead()
 			if avail == 0 {
 				return 0, nil
 			}
