@@ -11,8 +11,8 @@ github.com/drgolem/go-ogg v0.0.0-20221021062348-a1b6f0a17f55 h1:H/L2PsiqiDBTYfbL
 github.com/drgolem/go-ogg v0.0.0-20221021062348-a1b6f0a17f55/go.mod h1:VssowOSDLjOq1bsEhw4OCNu0JjQd8Zb3xYiCf3OgaAw=
 github.com/drgolem/go-opus v0.0.0-20221022213453-763cb73ec5b5 h1:qTjDf1kbmKs3GLQ1TV1aWt7huHmACNpYEql/WsxpKLk=
 github.com/drgolem/go-opus v0.0.0-20221022213453-763cb73ec5b5/go.mod h1:Na1IlcmgrbIxFPwaPyBUUzJ2RoViQpV8I90poXPskuI=
-github.com/drgolem/go-portaudio v0.0.0-20260217063547-5c70ebc530b8 h1:9TXgwQB4GJTJ2EFDBm4pz4igfdae+d9llg2JwaU+UcI=
-github.com/drgolem/go-portaudio v0.0.0-20260217063547-5c70ebc530b8/go.mod h1:/MRcx62h+GpZVFpb0tSaNMY9PSCjbQ2ykTixBwM8JOk=
+github.com/drgolem/go-portaudio v0.0.0-20260309010403-03a2d827824b h1:3yEe8frYlCN28dFnF9g5Od/5fHFNRRSrV6lQb0WKNxg=
+github.com/drgolem/go-portaudio v0.0.0-20260309010403-03a2d827824b/go.mod h1:/MRcx62h+GpZVFpb0tSaNMY9PSCjbQ2ykTixBwM8JOk=
 github.com/drgolem/ringbuffer v0.0.0-20260212040143-40ad42d6ca09 h1:M9UeeDPr+87afrmoMm9Kou/tpbgzQm93jJfW1RuZodw=
 github.com/drgolem/ringbuffer v0.0.0-20260212040143-40ad42d6ca09/go.mod h1:Xn0Po7/iyHRbuoeJ8GFYKIAiCGyy/+uSMIwnTjOvznA=
 github.com/exaring/ebur128 v0.0.0-20260217210235-a476130e2d41 h1:/ee/9tPPNuXq+RrwmRyxgADTkpEPVbqonHqZKzaTncc=

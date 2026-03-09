@@ -15,21 +15,40 @@ import (
 	"github.com/drgolem/go-portaudio/portaudio"
 )
 
-// AudioPlayer plays audio from any decoder.AudioDecoder using PortAudio callback mode
-// with an AudioFrameRingBuffer. Implements SPSC (Single-Producer Single-Consumer) pattern.
+// PlaybackMode selects how audio data is delivered to PortAudio.
+type PlaybackMode int
+
+const (
+	// ModeGoCallback uses a Go callback function (original behavior).
+	// May cause distortion at 48kHz on macOS due to GC interference.
+	ModeGoCallback PlaybackMode = iota
+	// ModeCRing uses a pure-C callback with a C-allocated SPSC ring buffer.
+	// Immune to Go GC pauses. Recommended default.
+	ModeCRing
+)
+
+// AudioPlayer plays audio from any decoder.AudioDecoder using PortAudio.
+// Supports two playback modes:
+//   - ModeCRing (default): pure-C callback, GC-free, no distortion
+//   - ModeGoCallback: Go callback, may distort at 48kHz on macOS
 //
 // Thread Safety Model:
 //   - Producer goroutine writes to ringbuffer
-//   - PortAudio C thread (audio callback) reads from ringbuffer
+//   - PortAudio thread (C callback or Go callback) reads from ringbuffer
 //   - Atomic operations for all shared state
-//   - Deep copy for frame data to prevent buffer corruption
 type AudioPlayer struct {
-	ringbuf         *audioframeringbuffer.AudioFrameRingBuffer
+	// Go callback mode state
+	ringbuf *audioframeringbuffer.AudioFrameRingBuffer
+
+	// C ring callback mode state
+	cring *portaudio.CRing
+
 	stream          *portaudio.PaStream
 	decoder         decoder.AudioDecoder
 	deviceIndex     int
 	framesPerBuffer int
 	samplesPerFrame int
+	mode            PlaybackMode
 
 	// Current audio format
 	sampleRate     int
@@ -47,7 +66,7 @@ type AudioPlayer struct {
 	stopped              bool
 	draining             atomic.Bool // signals callback to fade out
 
-	// Callback state for partial frame consumption
+	// Callback state for partial frame consumption (Go callback mode only)
 	currentFrame atomic.Pointer[audioframe.AudioFrame]
 	frameOffset  int
 
@@ -59,10 +78,12 @@ type AudioPlayer struct {
 }
 
 // New creates a new AudioPlayer with the specified configuration.
+// Uses ModeCRing (pure-C callback) by default.
 //
 // Parameters:
 //   - deviceIdx: PortAudio device index for audio output
-//   - bufferCapacity: Ringbuffer capacity in number of AudioFrames
+//   - bufferCapacity: Ringbuffer capacity in number of AudioFrames (Go callback)
+//     or ignored (CRing mode uses 250ms buffer)
 //   - framesPerBuffer: PortAudio frames per buffer callback
 //   - samplesPerFrame: Number of samples per AudioFrame
 func New(deviceIdx int, bufferCapacity uint64, framesPerBuffer, samplesPerFrame int) *AudioPlayer {
@@ -71,7 +92,13 @@ func New(deviceIdx int, bufferCapacity uint64, framesPerBuffer, samplesPerFrame 
 		deviceIndex:     deviceIdx,
 		framesPerBuffer: framesPerBuffer,
 		samplesPerFrame: samplesPerFrame,
+		mode:            ModeCRing,
 	}
+}
+
+// SetMode sets the playback mode. Must be called before Play().
+func (ap *AudioPlayer) SetMode(mode PlaybackMode) {
+	ap.mode = mode
 }
 
 // SetDecoder sets the audio decoder to play from.
@@ -128,8 +155,23 @@ func (ap *AudioPlayer) Play() error {
 	ap.wg.Add(1)
 	go ap.producer()
 
-	slog.Debug("Playback started")
+	// In CRing mode, start a completion monitor goroutine
+	if ap.mode == ModeCRing {
+		ap.wg.Add(1)
+		go ap.cringCompletionMonitor()
+	}
+
+	slog.Debug("Playback started", "mode", ap.modeString())
 	return nil
+}
+
+func (ap *AudioPlayer) modeString() string {
+	switch ap.mode {
+	case ModeCRing:
+		return "cring"
+	default:
+		return "callback"
+	}
 }
 
 func (ap *AudioPlayer) initializeStream() error {
@@ -154,8 +196,23 @@ func (ap *AudioPlayer) initializeStream() error {
 		SampleRate: float64(ap.sampleRate),
 	}
 
-	if err := ap.stream.OpenCallback(ap.framesPerBuffer, ap.audioCallback); err != nil {
-		return fmt.Errorf("failed to open stream with callback: %w", err)
+	switch ap.mode {
+	case ModeCRing:
+		frameSize := ap.channels * ap.bytesPerSample
+		// 250ms ring buffer
+		ringCapBytes := ap.sampleRate * frameSize * 250 / 1000
+		ap.cring = portaudio.NewCRing(ringCapBytes, frameSize)
+
+		if err := ap.stream.OpenRingCallback(ap.framesPerBuffer, ap.cring); err != nil {
+			ap.cring.Free()
+			ap.cring = nil
+			return fmt.Errorf("failed to open stream with C ring callback: %w", err)
+		}
+
+	default: // ModeGoCallback
+		if err := ap.stream.OpenCallback(ap.framesPerBuffer, ap.audioCallback); err != nil {
+			return fmt.Errorf("failed to open stream with callback: %w", err)
+		}
 	}
 
 	if err := ap.stream.StartStream(); err != nil {
@@ -165,8 +222,32 @@ func (ap *AudioPlayer) initializeStream() error {
 	return nil
 }
 
-// audioCallback is called by PortAudio from a real-time audio thread (not a Go goroutine).
-// It is the consumer in the SPSC pattern, reading frames from the ringbuffer.
+// cringCompletionMonitor polls CRing to detect when all audio has been played.
+func (ap *AudioPlayer) cringCompletionMonitor() {
+	defer ap.wg.Done()
+
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ap.stopChan:
+			return
+		case <-ticker.C:
+			if ap.producerDone.Load() && ap.cring != nil && ap.cring.Available() == 0 {
+				ap.playbackComplete.Store(true)
+				select {
+				case <-ap.playbackCompleteChan:
+				default:
+					close(ap.playbackCompleteChan)
+				}
+				return
+			}
+		}
+	}
+}
+
+// audioCallback is called by PortAudio from a real-time audio thread (Go callback mode only).
 func (ap *AudioPlayer) audioCallback(
 	input, output []byte,
 	frameCount uint,
@@ -255,11 +336,60 @@ func (ap *AudioPlayer) audioCallback(
 	return portaudio.Continue
 }
 
-// producer reads from decoder and writes AudioFrames to ringbuffer.
+// producer reads from decoder and writes to the appropriate ring buffer.
 func (ap *AudioPlayer) producer() {
 	defer ap.wg.Done()
 	defer ap.producerDone.Store(true)
 
+	if ap.mode == ModeCRing {
+		ap.producerCRing()
+	} else {
+		ap.producerGoCallback()
+	}
+}
+
+// producerCRing writes decoded PCM bytes directly to the C ring buffer.
+func (ap *AudioPlayer) producerCRing() {
+	bufferBytes := ap.samplesPerFrame * ap.channels * ap.bytesPerSample
+	buffer := make([]byte, bufferBytes)
+
+	for {
+		select {
+		case <-ap.stopChan:
+			return
+		default:
+		}
+
+		samplesRead, err := ap.decoder.DecodeSamples(ap.samplesPerFrame, buffer)
+		if err != nil || samplesRead == 0 {
+			slog.Debug("CRing producer finished", "error", err, "samples_read", samplesRead)
+			return
+		}
+
+		bytesToWrite := samplesRead * ap.channels * ap.bytesPerSample
+		data := buffer[:bytesToWrite]
+
+		written := 0
+		for written < len(data) {
+			select {
+			case <-ap.stopChan:
+				return
+			default:
+			}
+
+			n := ap.cring.Write(data[written:])
+			written += n
+			if written < len(data) {
+				time.Sleep(500 * time.Microsecond)
+			}
+		}
+
+		ap.producedSamples.Add(uint64(samplesRead))
+	}
+}
+
+// producerGoCallback writes AudioFrames to the Go ring buffer (original behavior).
+func (ap *AudioPlayer) producerGoCallback() {
 	bufferBytes := ap.samplesPerFrame * ap.channels * ap.bytesPerSample
 	buffer := make([]byte, bufferBytes)
 
@@ -344,8 +474,20 @@ func (ap *AudioPlayer) Stop() error {
 		if err := ap.stream.StopStream(); err != nil {
 			slog.Warn("Failed to stop stream", "error", err)
 		}
-		if err := ap.stream.CloseCallback(); err != nil {
-			slog.Warn("Failed to close stream", "error", err)
+
+		switch ap.mode {
+		case ModeCRing:
+			if err := ap.stream.Close(); err != nil {
+				slog.Warn("Failed to close stream", "error", err)
+			}
+			if ap.cring != nil {
+				ap.cring.Free()
+				ap.cring = nil
+			}
+		default:
+			if err := ap.stream.CloseCallback(); err != nil {
+				slog.Warn("Failed to close stream", "error", err)
+			}
 		}
 		ap.stream = nil
 	}
@@ -365,6 +507,12 @@ func (ap *AudioPlayer) Stop() error {
 func (ap *AudioPlayer) GetPlaybackStatus() types.PlaybackStatus {
 	produced := ap.producedSamples.Load()
 	played := ap.playedSamples.Load()
+
+	// For CRing mode, get played samples from C diagnostics
+	if ap.mode == ModeCRing && ap.cring != nil {
+		played = uint64(ap.cring.SamplesPlayed())
+	}
+
 	buffered := uint64(0)
 	if produced > played {
 		buffered = produced - played
