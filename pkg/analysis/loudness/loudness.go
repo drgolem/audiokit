@@ -1,17 +1,13 @@
 package loudness
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
-	"sync"
 
 	"github.com/drgolem/audiokit/pkg/decoder"
 	"github.com/drgolem/audiokit/pkg/types"
 	"github.com/exaring/ebur128"
-	soxr "github.com/zaf/resample"
 )
 
 const (
@@ -27,9 +23,6 @@ const (
 	// analysisBitDepth forces all decoders to output int16 (2 bytes per sample).
 	analysisBitDepth = 16
 )
-
-// soxrMu serializes soxr_create calls — libsoxr is not thread-safe during init.
-var soxrMu sync.Mutex
 
 // DecoderFactory creates a decoder for the given file at the specified bit depth.
 // The returned decoder must already be opened (ready to call DecodeSamples).
@@ -81,11 +74,7 @@ func (a *Analyzer) Analyze(fileName string) (*types.ReplayGainValues, error) {
 		pcmBytes := audioBuf[:nFrames*bytesPerFrame]
 
 		if needResample {
-			resampled, resErr := resampleTo48k(pcmBytes, sampleRate, channels)
-			if resErr != nil {
-				return nil, fmt.Errorf("resample: %w", resErr)
-			}
-			pcmBytes = resampled
+			pcmBytes = resampleLinear16(pcmBytes, sampleRate, analysisSampleRate, channels)
 			nFrames = len(pcmBytes) / bytesPerFrame
 		}
 
@@ -119,31 +108,42 @@ func (a *Analyzer) Analyze(fileName string) (*types.ReplayGainValues, error) {
 	}, nil
 }
 
-func resampleTo48k(pcmBytes []byte, sourceSR, channels int) ([]byte, error) {
-	var buf bytes.Buffer
-	w := bufio.NewWriter(&buf)
-
-	soxrMu.Lock()
-	resampler, err := soxr.New(w,
-		float64(sourceSR),
-		float64(analysisSampleRate),
-		channels,
-		soxr.I16,
-		soxr.HighQ)
-	soxrMu.Unlock()
-	if err != nil {
-		return nil, err
+// resampleLinear16 resamples interleaved int16 PCM using linear interpolation.
+// Sufficient for loudness analysis where sample-accurate reconstruction is not required.
+func resampleLinear16(pcmBytes []byte, srcRate, dstRate, channels int) []byte {
+	srcFrames := len(pcmBytes) / (channels * 2)
+	if srcFrames == 0 {
+		return nil
 	}
 
-	if _, err := resampler.Write(pcmBytes); err != nil {
-		_ = resampler.Close()
-		return nil, err
+	ratio := float64(dstRate) / float64(srcRate)
+	dstFrames := int(float64(srcFrames) * ratio)
+	out := make([]byte, dstFrames*channels*2)
+
+	for i := 0; i < dstFrames; i++ {
+		srcPos := float64(i) / ratio
+		idx := int(srcPos)
+		frac := srcPos - float64(idx)
+
+		if idx >= srcFrames-1 {
+			idx = srcFrames - 1
+			frac = 0
+		}
+
+		for ch := 0; ch < channels; ch++ {
+			s0 := int16(binary.LittleEndian.Uint16(pcmBytes[(idx*channels+ch)*2:]))
+			var s1 int16
+			if idx+1 < srcFrames {
+				s1 = int16(binary.LittleEndian.Uint16(pcmBytes[((idx+1)*channels+ch)*2:]))
+			} else {
+				s1 = s0
+			}
+			interpolated := float64(s0) + frac*(float64(s1)-float64(s0))
+			sample := int16(math.Round(interpolated))
+			binary.LittleEndian.PutUint16(out[(i*channels+ch)*2:], uint16(sample))
+		}
 	}
-
-	_ = resampler.Close()
-	w.Flush()
-
-	return buf.Bytes(), nil
+	return out
 }
 
 func pcmToFloat64Stereo(pcmBytes []byte, channels int, isMono bool) []float64 {
