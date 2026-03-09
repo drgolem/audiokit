@@ -5,8 +5,8 @@ github.com/braheezy/shine-mp3 v0.1.0/go.mod h1:0H/pmcpFAd+Fnrj6Pc7du7wL36U/Hqtfc
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/drgolem/go-flac v0.0.0-20260227233836-5288cd6451bf h1:9KMDPpjmaPAHHaOO7gkbltD/6zOku4mig5hZbs99Q0s=
-github.com/drgolem/go-flac v0.0.0-20260227233836-5288cd6451bf/go.mod h1:JZwqbZkVeZpJec6D5+QOXQutzy003L8Z6ZihvJqu+eg=
+github.com/drgolem/go-flac v0.0.0-20260309030445-fb2fc70e6c20 h1:rmH7jN/RMZNvb/ppnlTCzZstXA9rzNlofZNJSZagHZI=
+github.com/drgolem/go-flac v0.0.0-20260309030445-fb2fc70e6c20/go.mod h1:JZwqbZkVeZpJec6D5+QOXQutzy003L8Z6ZihvJqu+eg=
 github.com/drgolem/go-ogg v0.0.0-20221021062348-a1b6f0a17f55 h1:H/L2PsiqiDBTYfbL50fFW6fV0sVc5V1/NztszeAehVs=
 github.com/drgolem/go-ogg v0.0.0-20221021062348-a1b6f0a17f55/go.mod h1:VssowOSDLjOq1bsEhw4OCNu0JjQd8Zb3xYiCf3OgaAw=
 github.com/drgolem/go-opus v0.0.0-20221022213453-763cb73ec5b5 h1:qTjDf1kbmKs3GLQ1TV1aWt7huHmACNpYEql/WsxpKLk=
